@@ -13,7 +13,7 @@ OpenSSL verifies, keys are non-extractable, storage survives reboots.
 
 | dir      | what |
 |----------|------|
-| `tfa/`   | build script for BL31 from [nikicat/arm-trusted-firmware `rk3588-optee`](https://github.com/nikicat/arm-trusted-firmware/tree/rk3588-optee): the TF-A edk2-rk3588 ships (worproject fork) + BL32 entry fallback + firewall region, `SPD=opteed` |
+| `tfa/`   | build script for BL31 from [nikicat/arm-trusted-firmware `rk3588-optee-upstream`](https://github.com/nikicat/arm-trusted-firmware/tree/rk3588-optee-upstream): the upstream commit edk2-rk3588 master pins + edk2's patch set + BL32 entry fallback + firewall region, `SPD=opteed` |
 | `optee/` | build script for OP-TEE from [nikicat/optee_os `rock5b`](https://github.com/nikicat/optee_os/tree/rock5b) (= upstream master + `rk3588-firewall-by-bl31` + `ramcon`), PKCS#11 as an early TA |
 | `fit/`   | `fitrepack.py`: take an edk2-rk3588 image apart and rebuild it with our BL31/OP-TEE |
 | `linux/` | kernel package (`linux-aarch64-tee`), UKI config, devicetree node, cmdline flag |
@@ -30,7 +30,7 @@ so its own build can produce the same image.
    loads the FIT's `optee` image but hands BL31 a zero entry. Upstream TF-A
    then never starts OP-TEE. `tfa/` patch: fall back to the FIT's fixed load
    address `0x08400000` when the SPL passes nothing
-   ([branch](https://github.com/nikicat/arm-trusted-firmware/tree/rk3588-optee)).
+   ([branch](https://github.com/nikicat/arm-trusted-firmware/tree/rk3588-optee-upstream), also as patch files in edk2-porting/edk2-rk3588#290).
 2. **OP-TEE's firewall programming hangs the core.** Upstream OP-TEE for
    rk3588 writes the DDR/DSU firewall registers itself; from S-EL1 on this
    chain the write never returns. TF-A already programs region 0 for itself,
@@ -64,7 +64,8 @@ Build with `tfa/build.sh tfa-out` and `optee/build.sh optee-out ta.pem`, then
 
     fit/fitrepack.py extract rock-5b_UEFI_Release_v1.1.img v11
     fit/fitrepack.py build --head rock-5b_UEFI_Release_v1.1.img --uefi v11/edk2.bin \
-        --atf 0x40000:tfa-out/bl31_0x00040000.bin --atf 0xff100000:tfa-out/bl31_0xff100000.bin \
+        --atf 0x40000:tfa-out/bl31_0x00040000.bin --atf 0x5f000:tfa-out/bl31_0x0005f000.bin \
+        --atf 0xff100000:tfa-out/bl31_0xff100000.bin \
         --optee optee-out/tee-raw.bin --fdt v11/fdt.bin -o FINAL.img
 
 **Runtime load:** BL31 built with `tfa/build.sh tfa-out smcload` waits
