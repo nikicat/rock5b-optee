@@ -1,0 +1,13 @@
+*.img
+*.itb
+*.bin
+*.ko
+*.o
+*.mod*
+*.cmd
+.tmp_*
+Module.symvers
+modules.order
+*.pem
+__pycache__/
+*.its

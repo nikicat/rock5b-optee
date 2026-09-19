@@ -1,0 +1,6 @@
+# mkinitcpio preset for the '%PKGBASE%' package: a UKI next to the stock
+# kernel's, with the devicetree that carries the optee node
+ALL_kver="%KERNVER%"
+PRESETS=('default')
+default_uki="/efi/EFI/Linux/arch-linux-tee.efi"
+default_options="--ukiconfig /etc/kernel/uki-tee.conf"
