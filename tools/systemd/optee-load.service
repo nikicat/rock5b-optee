@@ -1,0 +1,18 @@
+[Unit]
+Description=OP-TEE hand-over to BL31 (runtime load)
+Documentation=https://github.com/nikicat/rock5b-optee
+# no image, no TEE: the unit is inert on a box that lacks the firmware file
+ConditionPathExists=/usr/lib/firmware/optee/tee.bin
+DefaultDependencies=no
+After=systemd-udevd.service systemd-modules-load.service local-fs.target
+Before=sysinit.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/etc/optee/load.sh
+# a hung hand-over ends in a watchdog reset well before this fires
+TimeoutStartSec=120
+
+[Install]
+WantedBy=sysinit.target

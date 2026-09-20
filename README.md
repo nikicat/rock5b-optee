@@ -69,7 +69,9 @@ Build with `tfa/build.sh tfa-out` and `optee/build.sh optee-out ta.pem`, then
         --optee optee-out/tee-raw.bin --fdt v11/fdt.bin -o FINAL.img
 
 **Runtime load:** BL31 built with `tfa/build.sh tfa-out smcload` waits
-for Linux to hand it `tee-v2.bin` (`tools/teeload`). A hang resets the board
+for Linux to hand it `tee-v2.bin` (`tools/teeload`; `tools/systemd/` has the
+boot unit that does it automatically, and `tools/dkms.conf` keeps the modules
+built across kernel upgrades). A hang resets the board
 through the hardware watchdog in 44 s instead of bricking it, which is how
 everything above was found without a UART. Trust boundary is the same as
 boot-time as long as secure boot is not fused.
