@@ -14,9 +14,9 @@ OpenSSL verifies, keys are non-extractable, storage survives reboots.
 | dir      | what |
 |----------|------|
 | `tfa/`   | build script for BL31 from [nikicat/arm-trusted-firmware `rk3588-optee-upstream`](https://github.com/nikicat/arm-trusted-firmware/tree/rk3588-optee-upstream): the upstream commit edk2-rk3588 master pins + edk2's patch set + BL32 entry fallback + firewall region, `SPD=opteed` |
-| `optee/` | build script for OP-TEE from [nikicat/optee_os `rock5b`](https://github.com/nikicat/optee_os/tree/rock5b) (= upstream master + `rk3588-firewall-by-bl31` + `ramcon`), PKCS#11 as an early TA |
+| `optee/` | build script for OP-TEE from [nikicat/optee_os `rock5b`](https://github.com/nikicat/optee_os/tree/rock5b) (= upstream master + `rk3588-firewall-by-bl31` + `ramcon` + `rk3588-otp-clocks`), PKCS#11 as an early TA |
 | `fit/`   | `fitrepack.py`: take an edk2-rk3588 image apart and rebuild it with our BL31/OP-TEE |
-| `linux/` | kernel package (`linux-aarch64-tee`), UKI config, devicetree node, cmdline flag |
+| `linux/` | kernel package (`linux-aarch64-tee`), UKI config, devicetree node |
 | `tools/` | runtime-load loader module, RAM-console reader, marker reader, SMC probe, watchdog-guarded experiment script |
 
 The userspace side (`tee-supplicant`, `libteec`, `libckteec`) is the AUR
@@ -46,11 +46,12 @@ so its own build can produce the same image.
    probe failed silently. Built with the board's two RAM ranges (below and
    above 4 GiB) and `CFG_CORE_LARGE_PHYS_ADDR=y`. Registering all of
    0..16 GiB does not work: it overlaps the MMIO windows OP-TEE maps.
-5. **OTP clocks.** Linux gates the OTP controller clocks at the end of boot;
-   OP-TEE started afterwards times out reading the hardware unique key and
-   secure storage is unavailable (the PKCS#11 TA then panics on its first
-   object open). `clk_ignore_unused` on the kernel command line while OP-TEE
-   is loaded at runtime.
+5. **OTP clocks.** The secure OTP controller shares three clock gates
+   (arbiter, auto-read, phy) with the non-secure one, and Linux switches them
+   off as unused at the end of its boot. OP-TEE started afterwards timed out
+   reading the hardware unique key and had no secure storage (the PKCS#11 TA
+   then panics on its first object open). The OP-TEE driver now ungates them
+   before every OTP access (fork branch `rk3588-otp-clocks`).
 
 Two more that cost a day: edk2-rk3588 FITs align data to 512 bytes, stock
 `dumpimage` extracts them shifted by 0x90 (`fit/fitrepack.py` exists because

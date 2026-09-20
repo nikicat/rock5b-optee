@@ -1,6 +1,6 @@
 #!/bin/sh
 # Build OP-TEE for the ROCK 5B from the fork's integration branch (firewall left
-# to BL31 + RAM console) with the PKCS#11 TA compiled in.
+# to BL31 + RAM console + OTP clock ungate) with the PKCS#11 TA compiled in.
 #   build.sh <out-dir> <ta-signing-key.pem>
 # Memory layout matches edk2-rk3588: TZDRAM at 0x08400000, 15 MiB (the 16th MiB
 # of the reserved window holds the RAM console); DRAM ranges are the ROCK 5B's
