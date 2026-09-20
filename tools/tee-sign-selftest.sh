@@ -42,5 +42,14 @@ $sign sign "$t/other.pem" 7 "$img" "$t/otherkey.bin"
 ! "$t/chk" "$t/otherkey.bin" "$t/k.pub" 0 >/dev/null     || { echo "FAIL: other key accepted"; exit 1; }
 ! "$t/chk" "$t/good.bin" "$t/k.pub" 0 1 >/dev/null       || { echo "FAIL: truncated accepted"; exit 1; }
 ! "$t/chk" "$t/good.bin" "$t/k.pub" 0 $((sz - 40)) >/dev/null || { echo "FAIL: header-only accepted"; exit 1; }
+
+# the same through gpg-agent, with a throwaway keyring
+export GNUPGHOME="$t/gnupg"; mkdir -m 700 "$GNUPGHOME"
+gpg --batch --quiet --pinentry-mode loopback --passphrase '' --quick-gen-key "selftest" ed25519 sign never 2>/dev/null
+gfpr=$(gpg --list-keys --with-colons | awk -F: '$1=="fpr"{print $10; exit}')
+$sign pubkey "gpg:$gfpr" "$t/g.pub"; trap 'gpgconf --kill gpg-agent; rm -rf "$t"' EXIT
+$sign sign "gpg:$gfpr" 9 "$img" "$t/g.bin"; [ "$($sign verify "$t/g.pub" "$t/g.bin")" = 9 ]
+"$t/chk" "$t/g.bin" "$t/g.pub" 9 >/dev/null || { echo "FAIL: gpg-signed image rejected"; exit 1; }
+! "$t/chk" "$t/g.bin" "$t/k.pub" 0 >/dev/null || { echo "FAIL: gpg-signed image accepted by the file key"; exit 1; }
 "$t/chk" "$t/good.bin" "$t/k.pub" 7
-echo "all ok"
+echo "all ok (file key and gpg-agent key)"
