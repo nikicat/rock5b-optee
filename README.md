@@ -151,6 +151,21 @@ itself, and the replacement runs with the same hardware key.
    signing key and the originals of imported keys stay off the board. Keys
    generated inside the token cannot be backed up.
 
+5. **eMMC module for rollback protection.** The board has no eMMC, so
+   secure storage is encrypted files under `/var/lib/tee` that root can
+   delete or replace with an old copy, which also resets the PIN retry
+   counter. Any Radxa eMMC Module (16 GB is enough; Orange Pi modules have a
+   different pinout) adds an RPMB partition that only the firmware can write
+   and that rejects stale copies. OP-TEE rebuilt with `CFG_RPMB_FS=y`; the
+   RPMB key is burned from the hardware key on first use and ties that
+   partition to this board; existing keys are imported again. Decided, module
+   not yet fitted.
+6. **UEFI Secure Boot, optional.** Would make the OS that boots the one you
+   installed, which matters for root persisting a modified kernel; it adds
+   nothing to key confidentiality. On this board it is only meaningful with
+   the flash lock extended to 8 MiB so UEFI's code and its key store are
+   covered too (boot entries then freeze), plus kernel lockdown. Not planned.
+
 Still open after all of that: a root process holding a service's PIN can use
 that key (no audit log or rate limit in the token); root can delete or restore
 old copies of `/var/lib/tee` (no RPMB, no rollback protection); bugs in TF-A
