@@ -12,11 +12,11 @@ OpenSSL verifies, keys are non-extractable, storage survives reboots.
 
 | dir      | what |
 |----------|------|
-| `tfa/`   | build script for BL31 from [nikicat/arm-trusted-firmware `rk3588-optee-upstream`](https://github.com/nikicat/arm-trusted-firmware/tree/rk3588-optee-upstream): the upstream commit edk2-rk3588 master pins + edk2's patch set + BL32 entry fallback + firewall region, `SPD=opteed` |
-| `optee/` | build script for OP-TEE from [nikicat/optee_os `rock5b`](https://github.com/nikicat/optee_os/tree/rock5b) (= upstream master + `rk3588-firewall-by-bl31` + `ramcon` + `rk3588-otp-clocks`), PKCS#11 as an early TA |
+| `tfa/`   | build script for BL31 from [nikicat/arm-trusted-firmware `rk3588-optee-upstream`](https://github.com/nikicat/arm-trusted-firmware/tree/rk3588-optee-upstream): the upstream commit edk2-rk3588 master pins + edk2's patch set + BL32 entry fallback + firewall region + SPI NOR lock + signed SMC load (`OPTEE_SMC_LOAD_SIGNED`, branch `optee-smc-load-signed`), `SPD=opteed` |
+| `optee/` | build script for OP-TEE from [nikicat/optee_os `rock5b`](https://github.com/nikicat/optee_os/tree/rock5b) (= upstream master + `rk3588-firewall-by-bl31` + `ramcon` + `rk3588-otp-clocks` + `secp256k1`), PKCS#11 as an early TA |
 | `fit/`   | `fitrepack.py`: take an edk2-rk3588 image apart and rebuild it with our BL31/OP-TEE |
 | `linux/` | kernel package (`linux-aarch64-tee`), UKI config, devicetree node |
-| `tools/` | runtime-load loader module, RAM-console reader, marker reader, SMC probe, watchdog-guarded experiment script |
+| `tools/` | `tee-sign.py` (sign OP-TEE images for the signed load) and its host self-test, loader module + boot unit, RAM-console reader, marker reader, SMC probe, token checks |
 
 The userspace side (`tee-supplicant`, `libteec`, `libckteec`) is the AUR
 package `optee-client`. edk2-rk3588 gets a `--bl32` option on
@@ -120,10 +120,22 @@ signing key. What does not hold: root can still replace the secure world
 itself, and the replacement runs with the same hardware key.
 
 1. **Root swaps the OP-TEE image.** In the runtime-load setup Linux hands
-   `/usr/lib/firmware/optee/tee.bin` to BL31 at boot. Fix: the boot-time
-   chain (OP-TEE in the FIT, TF-A built without `OPTEE_ALLOW_SMC_LOAD`).
-   Done 2026-09-20 together with 3 below; the first attempt hung because of
-   the uninitialised SPL arguments described above.
+   `/usr/lib/firmware/optee/tee.bin` to BL31 at boot. First fix (2026-09-20):
+   the boot-time chain (OP-TEE in the FIT, TF-A built without
+   `OPTEE_ALLOW_SMC_LOAD`); the first attempt hung because of the
+   uninitialised SPL arguments described above. That made every OP-TEE update
+   a maskrom flash (item 2), so the runtime load came back with a check:
+   `OPTEE_SMC_LOAD_SIGNED=1` (TF-A branch `optee-smc-load-signed`) makes BL31
+   copy the handed-over blob into the firewalled OP-TEE window, verify an
+   ed25519 signature (Monocypher, public key compiled into BL31 via
+   `OPTEE_SIG_PUBKEY`) and a version floor (`OPTEE_SIG_MIN_VERSION`), and
+   refuse load addresses outside the window, before running it. Upstream's
+   SMC load does none of that. Images are made with `tools/tee-sign.py`
+   (`tfa/build.sh out signed key.pub 20260920`); `tools/tee-sign-selftest.sh`
+   runs the exact verifier on the host against good, edited, truncated,
+   downgraded and foreign-key blobs. Root can now withhold the TEE or feed it
+   an older signed image above the floor, nothing else; raising the floor is a
+   BL31 rebuild, so a maskrom flash. `SIG1.img` built 2026-09-20, flash pending.
 2. **Root rewrites the SPI flash.** `flashcp` works from Linux, which is how
    this project avoided opening the case, and it works for an attacker too.
    Done 2026-09-20, with the flash chip's own protection rather than the
@@ -139,10 +151,16 @@ itself, and the replacement runs with the same hardware key.
    store at 7.75 MiB stay writable, which keeps `efibootmgr` working.
    Verified: registers read back, erase refused inside the range and allowed
    outside it, lock removal refused with both write-enable opcodes.
-   Consequence: **every firmware update is now a power cycle into maskrom**
+   Consequence: **every firmware update was a power cycle into maskrom**
    (the lock is volatile, so `rkdeveloptool` writes as before); `flashcp`
    from Linux is gone by design. `tools/sfctest` reads and writes the status
-   registers through the kernel's SFC driver for checking this.
+   registers through the kernel's SFC driver for checking this. Since
+   2026-09-21 BL31 can update the flash itself at power-on, before it sets
+   the lock, from a signed bundle root staged in the free top half of the chip
+   ([rk3588-fwupd](https://github.com/nikicat/rk3588-fwupd)); the running
+   BL31's version is the rollback counter. A firmware update is then a power
+   cycle without maskrom; maskrom remains for a torn write or a bad image.
+   `UPD1.img` (updater + signed OP-TEE load) built, flash pending.
 3. **Build hardening** once 1 is in: `CFG_REE_FS_TA=n` (needs
    `CFG_SECSTOR_TA_MGMT_PTA=n` too), drop the loader and reader modules and
    the boot unit. Done; `CFG_RAMCON` stays on until the next firmware update,
