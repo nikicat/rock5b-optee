@@ -81,11 +81,14 @@ boot-time as long as secure boot is not fused.
 
 ## Flashing and recovery
 
-From Linux: `flashcp -v IMAGE /dev/mtd0` (dd to `/dev/mtdblock0` silently
-never reaches the chip on this kernel). Images end before the UEFI variable
-store at 0x7C0000, so boot entries survive. Recovery: Maskrom button, USB-C to
+With the flash lock in place (Hardening, item 2) the firmware can only be
+written from maskrom, and only after a power cycle: Maskrom button, USB-C to
 a PC, `rkdeveloptool db rk3588_spl_loader_v1.15.113.bin`, `rkdeveloptool wl 0
-IMAGE`, `rkdeveloptool rl 0 N` to read back and compare.
+IMAGE`, `rkdeveloptool rl 0 N` to read back and compare. Images end before the
+UEFI variable store at 0x7C0000, so boot entries survive. Before the lock,
+`flashcp -v IMAGE /dev/mtd0` from Linux worked (dd to `/dev/mtdblock0` silently
+never reaches the chip on this kernel); with the lock it reports success and
+changes nothing, so always read back and compare.
 
 ## Reading OP-TEE's log without a UART
 
@@ -123,20 +126,23 @@ itself, and the replacement runs with the same hardware key.
    the uninitialised SPL arguments described above.
 2. **Root rewrites the SPI flash.** `flashcp` works from Linux, which is how
    this project avoided opening the case, and it works for an attacker too.
-   Fix: TF-A's `sgrf_init()` assigns peripherals to the secure world at every
-   boot; marking the flash controller secure-only makes the firmware read-only
-   for Linux. Reversible (flash a non-locking TF-A from maskrom), unlike
-   Rockchip's fused secure boot, which burns a key hash into OTP with closed
-   tools and bricks the board on a mistake. The lock only holds while the
-   locking firmware is installed, so every later *firmware* update (OS updates
-   never touch the flash) needs one of:
-   - maskrom, always available;
-   - a header pin TF-A reads at boot, leaving the flash writable for that boot
-     (the maskrom button cannot serve: it grounds the flash clock);
-   - a signed unlock: a TA verifies a signature made off-board over a fresh
-     nonce, OP-TEE asks TF-A to open the flash until the next reboot, then
-     `flashcp` over ssh. The register write belongs in TF-A; S-EL1 firewall
-     writes hang on this chain.
+   Done 2026-09-20, with the flash chip's own protection rather than the
+   peripheral firewall (that would have taken the flash away from UEFI's
+   variable store and Linux's driver, not just from writers). The chip is an
+   XTX XT25F128B with Winbond-style status registers. TF-A
+   (`RK3588_SPINOR_LOCK=1`, `drivers/soc/spinor_lock.c` on the fork branch)
+   block-protects the bottom 4 MiB at every boot and sets the power-supply
+   lock-down bit: nothing, secure world included, can change the protection
+   until the chip loses power, and on the next power-up TF-A sets it again
+   before anything non-secure runs. The FIT is packed BL31, OP-TEE, then UEFI,
+   so everything that matters ends at 1.9 MiB; UEFI's code and its variable
+   store at 7.75 MiB stay writable, which keeps `efibootmgr` working.
+   Verified: registers read back, erase refused inside the range and allowed
+   outside it, lock removal refused with both write-enable opcodes.
+   Consequence: **every firmware update is now a power cycle into maskrom**
+   (the lock is volatile, so `rkdeveloptool` writes as before); `flashcp`
+   from Linux is gone by design. `tools/sfctest` reads and writes the status
+   registers through the kernel's SFC driver for checking this.
 3. **Build hardening** once 1 is in: `CFG_REE_FS_TA=n` (needs
    `CFG_SECSTOR_TA_MGMT_PTA=n` too), drop the loader and reader modules and
    the boot unit. Done; `CFG_RAMCON` stays on until the next firmware update,

@@ -56,10 +56,12 @@ def build(a):
     a.uefi, a.fdt, a.head = ap(a.uefi), ap(a.fdt), ap(a.head)
     if a.optee: a.optee = ap(a.optee)
     atf = [(f"atf-{i+1}", ap(f), int(addr, 16)) for i, (addr, f) in enumerate(x.split(":", 1) for x in a.atf)]
-    imgs = node("edk2", a.uefi, "standalone", "EDK2", 0x200000)
+    # BL31 and OP-TEE first so they land in the flash's write-protected bottom 4 MiB; UEFI (5 MiB) after
+    imgs = ""
     for n, f, l in atf: imgs += node(n, f, "firmware", "arm-trusted-firmware", l)
     loadables = ["edk2"] + [n for n, _, _ in atf[1:]]
     if a.optee: imgs += node("optee", a.optee, "firmware", "op-tee", 0x8400000); loadables.append("optee")
+    imgs += node("edk2", a.uefi, "standalone", "EDK2", 0x200000)
     imgs += node("fdt", a.fdt, "flat_dt", None, None)
     ld = ", ".join(f'"{x}"' for x in loadables)
     its = ('/dts-v1/;\n/ {\n\tdescription = "FIT Image with ATF/OP-TEE/UEFI";\n\t#address-cells = <1>;\n'
