@@ -2,9 +2,8 @@
 
 Upstream OP-TEE with a built-in PKCS#11 token on a Radxa ROCK 5B (RK3588) that
 boots edk2-rk3588 UEFI. The goal: a key store whose private keys root cannot
-read, with import, sign and no export. Physical attacks and secure-boot fusing
-are out of scope; the known remaining hole is "root rewrites the SPI flash and
-reboots", which only a fused secure boot closes.
+read, with import, sign and no export. Physical attacks are out of scope. Two
+root-level holes remain open in the current setup; see Hardening below.
 
 Status: works (2026-09-20). Keys imported from outside sign inside the TEE,
 OpenSSL verifies, keys are non-extractable, storage survives reboots.
@@ -105,3 +104,41 @@ outside the firewall region on purpose. `tools/readcon` exposes it as
 Storage lives in `/var/lib/tee`, encrypted under a key derived from the
 hardware unique key in OTP; it is unreadable on any other board. No RPMB on
 this board, so there is no rollback protection for it.
+
+## Hardening
+
+What holds today: the DDR firewall keeps secure memory unreadable, the storage
+is encrypted under a key that never leaves the chip, and the PKCS#11 code is
+compiled into OP-TEE, so root cannot add trusted applications without the
+signing key. What does not hold: root can still replace the secure world
+itself, and the replacement runs with the same hardware key.
+
+1. **Root swaps the OP-TEE image.** In the runtime-load setup Linux hands
+   `/usr/lib/firmware/optee/tee.bin` to BL31 at boot. Fix: the boot-time
+   chain (OP-TEE in the FIT, TF-A built without `OPTEE_ALLOW_SMC_LOAD`).
+2. **Root rewrites the SPI flash.** `flashcp` works from Linux, which is how
+   this project avoided opening the case, and it works for an attacker too.
+   Fix: TF-A's `sgrf_init()` assigns peripherals to the secure world at every
+   boot; marking the flash controller secure-only makes the firmware read-only
+   for Linux. Reversible (flash a non-locking TF-A from maskrom), unlike
+   Rockchip's fused secure boot, which burns a key hash into OTP with closed
+   tools and bricks the board on a mistake. The lock only holds while the
+   locking firmware is installed, so every later *firmware* update (OS updates
+   never touch the flash) needs one of:
+   - maskrom, always available;
+   - a header pin TF-A reads at boot, leaving the flash writable for that boot
+     (the maskrom button cannot serve: it grounds the flash clock);
+   - a signed unlock: a TA verifies a signature made off-board over a fresh
+     nonce, OP-TEE asks TF-A to open the flash until the next reboot, then
+     `flashcp` over ssh. The register write belongs in TF-A; S-EL1 firewall
+     writes hang on this chain.
+3. **Build hardening** once 1 is in: `CFG_REE_FS_TA=n`, `CFG_RAMCON=n`, drop
+   the loader and reader modules and the boot unit.
+4. **Operational**: one PIN per service, kept out of shell history; the TA
+   signing key and the originals of imported keys stay off the board. Keys
+   generated inside the token cannot be backed up.
+
+Still open after all of that: a root process holding a service's PIN can use
+that key (no audit log or rate limit in the token); root can delete or restore
+old copies of `/var/lib/tee` (no RPMB, no rollback protection); bugs in TF-A
+or OP-TEE; anything physical.
