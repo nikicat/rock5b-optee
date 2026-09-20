@@ -25,11 +25,14 @@ so its own build can produce the same image.
 
 ## What had to change, and why
 
-1. **The SPL passes no BL32 entry point.** Rockchip's SPL (`rk3588_spl_v1.12`)
-   loads the FIT's `optee` image but hands BL31 a zero entry. Upstream TF-A
-   then never starts OP-TEE. `tfa/` patch: fall back to the FIT's fixed load
-   address `0x08400000` when the SPL passes nothing
-   ([branch](https://github.com/nikicat/arm-trusted-firmware/tree/rk3588-optee-upstream), also as patch files in edk2-porting/edk2-rk3588#290).
+1. **The SPL passes no BL32 entry point, and garbage arguments.** Rockchip's
+   SPL (`rk3588_spl_v1.12`) loads the FIT's `optee` image but hands BL31 a
+   zero entry and leaves the four BL32 argument words uninitialised (leftover
+   code and addresses). Upstream TF-A then never starts OP-TEE, and with only
+   the entry fixed it starts it in 32-bit mode, because the OP-TEE dispatcher
+   reads the first argument as the AArch32/AArch64 selector. `tfa/` patch:
+   fall back to the FIT's fixed load address `0x08400000` and clear the
+   arguments when the SPL passes nothing.
 2. **OP-TEE's firewall programming hangs the core.** Upstream OP-TEE for
    rk3588 writes the DDR/DSU firewall registers itself; from S-EL1 on this
    chain the write never returns. TF-A already programs region 0 for itself,
@@ -116,6 +119,8 @@ itself, and the replacement runs with the same hardware key.
 1. **Root swaps the OP-TEE image.** In the runtime-load setup Linux hands
    `/usr/lib/firmware/optee/tee.bin` to BL31 at boot. Fix: the boot-time
    chain (OP-TEE in the FIT, TF-A built without `OPTEE_ALLOW_SMC_LOAD`).
+   Done 2026-09-20 together with 3 below; the first attempt hung because of
+   the uninitialised SPL arguments described above.
 2. **Root rewrites the SPI flash.** `flashcp` works from Linux, which is how
    this project avoided opening the case, and it works for an attacker too.
    Fix: TF-A's `sgrf_init()` assigns peripherals to the secure world at every
@@ -132,8 +137,10 @@ itself, and the replacement runs with the same hardware key.
      nonce, OP-TEE asks TF-A to open the flash until the next reboot, then
      `flashcp` over ssh. The register write belongs in TF-A; S-EL1 firewall
      writes hang on this chain.
-3. **Build hardening** once 1 is in: `CFG_REE_FS_TA=n`, `CFG_RAMCON=n`, drop
-   the loader and reader modules and the boot unit.
+3. **Build hardening** once 1 is in: `CFG_REE_FS_TA=n` (needs
+   `CFG_SECSTOR_TA_MGMT_PTA=n` too), drop the loader and reader modules and
+   the boot unit. Done; `CFG_RAMCON` stays on until the next firmware update,
+   it is the only log there is.
 4. **Operational**: one PIN per service, kept out of shell history; the TA
    signing key and the originals of imported keys stay off the board. Keys
    generated inside the token cannot be backed up.
